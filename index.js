@@ -58,7 +58,7 @@ async function run() {
         })
 
         //users releted apis
-        /// to get all users for client site  
+        /// to get all users for client 
 
         app.get('/users', async (req, res) => {
             const result = await usersCollection.find().toArray();
