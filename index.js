@@ -3,10 +3,35 @@ const app = express();
 const cors = require('cors');
 require('dotenv').config()
 const port = process.env.PORT || 5000;
+//json Web token 
+const jwt = require('jsonwebtoken');
 
 // middleware
 app.use(cors());
 app.use(express.json());
+
+// verifyJWT this token in server site cause if unknown user want to see other data
+const verifyJWT = (req, res, next) => {
+    const authorization = req.headers.authorization;
+    console.log('authorization token', authorization);
+    if (!authorization) { // not match
+        return res.status(401).send({ error: true, message: 'Unauthorized access' })
+    }
+
+    // this token is give as {barer (token)}
+    const token = authorization.split(' ')[1]; // if user has a token but is expire of 
+
+    
+    jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+        if (err) {
+            return res.status(401).send({ error: true, message: 'Unauthorized access' })
+        }
+        req.decoded = decoded;
+        console.log('Decoded values :', decoded);
+        next();
+    })
+
+}
 
 
 
@@ -32,8 +57,12 @@ async function run() {
         const usersCollection = client.db("bistroDb").collection('users'); // this created in DB already
         const reviewsCollection = client.db("bistroDb").collection('reviews');
         const cartCollection = client.db("bistroDb").collection('carts');
-
-
+        //jwt token 
+        app.post('/jwt', (req, res) => {
+            const user = req.body;
+            const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '48h' })
+            res.send({ token })
+        })
 
         //menu related api
         app.get('/menu', async (req, res) => {
@@ -46,11 +75,17 @@ async function run() {
             res.send(result);
         })
         // this is for count one user how many products added to cart
-        app.get('/carts', async (req, res) => {
+        // now verifying this token here cause this the place where all user info is there 
+        app.get('/carts', verifyJWT, async (req, res) => {
             const email = req.query.email;
             console.log(email);
             if (!email) {
                 res.send([]);
+            }
+            // in req.decoded there is an email is this email is === to user email is same give him data otherwise no  
+            const decodedEmail = req.decoded.email;
+            if (email !== decodedEmail) {
+                return res.status(403).send({ error: true, message: 'Porbiden access' })
             }
             const query = { email: email }
             const result = await cartCollection.find(query).toArray();
@@ -78,6 +113,36 @@ async function run() {
                 return res.send({ message: " User already exists" })
             }
             const result = await usersCollection.insertOne(user);
+            res.send(result)
+        })
+
+        // checking is this user admin or not  1st verifyJWT
+        app.get('/user/admin/:email', verifyJWT, async (req, res) => {
+
+            const email = req.params.email;
+            // 2nd step verification
+            //3rd step is in client site by create useAdmin
+            if (req.decoded.email !== email) {
+                res.send({ admin: false })
+            }
+
+            const query = { email: email };
+            const user = await usersCollection.findOne(query);
+            const result = { admin: user?.role === 'admin' }
+            res.send(result);
+        })
+        //making someone admin 
+        app.patch('/users/admin/:id', async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: new ObjectId(id) };
+
+            // by using updateDoc make his role as admin
+            const updateDoc = {
+                $set: {
+                    role: 'admin',
+                }
+            }
+            const result = await usersCollection.updateOne(query, updateDoc);
             res.send(result)
         })
         // cart collection
