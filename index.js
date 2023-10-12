@@ -1,3 +1,4 @@
+// those thing is important to make connection client site and  data base  
 const express = require('express');
 const app = express();
 const cors = require('cors');
@@ -13,7 +14,8 @@ app.use(express.json());
 // verifyJWT this token in server site cause if unknown user want to see other data
 const verifyJWT = (req, res, next) => {
     const authorization = req.headers.authorization;
-    console.log('authorization token', authorization);
+    console.log('authorization token :=', authorization);
+
     if (!authorization) { // not match
         return res.status(401).send({ error: true, message: 'Unauthorized access' })
     }
@@ -21,7 +23,7 @@ const verifyJWT = (req, res, next) => {
     // this token is give as {barer (token)}
     const token = authorization.split(' ')[1]; // if user has a token but is expire of 
 
-    
+
     jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
         if (err) {
             return res.status(401).send({ error: true, message: 'Unauthorized access' })
@@ -64,9 +66,39 @@ async function run() {
             res.send({ token })
         })
 
+        // middleware so (next) is use here 
+        const verifyAdmin = async (req, res, next) => {
+            const email = req.decoded.email;
+            const query = { email: email };
+            const user = await usersCollection.findOne(query);
+            // if user not admin 
+            if (user?.role !== 'admin') {
+                return res.status(403).send({ error: true, message: 'forbidden message' })
+            }
+            // if user admin then next
+            next();
+        }
+        /* 
+       1 . don't  
+       2. use jwttoken : verifyjwt
+       */
+
+        //users releted apis
+        /// to get all users for client 
+
+        app.get('/users', verifyJWT, verifyAdmin, async (req, res) => {
+            const result = await usersCollection.find().toArray();
+            res.send(result)
+        })
+
         //menu related api
         app.get('/menu', async (req, res) => {
             const result = await menuCollection.find().toArray();
+            res.send(result);
+        })
+        app.post('/menu', async (req, res) => {
+            const newItem = req.body;
+            const result = await menuCollection.insertOne(newItem);
             res.send(result);
         })
         // reviews related api
@@ -92,13 +124,7 @@ async function run() {
             res.send(result)
         })
 
-        //users releted apis
-        /// to get all users for client 
 
-        app.get('/users', async (req, res) => {
-            const result = await usersCollection.find().toArray();
-            res.send(result)
-        })
 
         /// to add users
 
@@ -117,7 +143,7 @@ async function run() {
         })
 
         // checking is this user admin or not  1st verifyJWT
-        app.get('/user/admin/:email', verifyJWT, async (req, res) => {
+        app.get('/users/admin/:email', verifyJWT, async (req, res) => {
 
             const email = req.params.email;
             // 2nd step verification
