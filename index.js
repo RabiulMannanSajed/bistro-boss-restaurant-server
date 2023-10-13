@@ -91,16 +91,28 @@ async function run() {
             res.send(result)
         })
 
-        //menu related api
+        //menu related api this is not admin only
         app.get('/menu', async (req, res) => {
             const result = await menuCollection.find().toArray();
             res.send(result);
         })
-        app.post('/menu', async (req, res) => {
+
+        // this is admin only
+        app.post('/menu', verifyJWT, verifyAdmin, async (req, res) => {
             const newItem = req.body;
             const result = await menuCollection.insertOne(newItem);
             res.send(result);
         })
+
+        // delete single item from data base
+
+        app.delete('/menu/:id', verifyJWT, verifyAdmin, async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: new ObjectId(id) };
+            const result = await menuCollection.deleteOne(query);
+            res.send(result);
+        })
+
         // reviews related api
         app.get('/reviews', async (req, res) => {
             const result = await reviewsCollection.find().toArray();
@@ -117,7 +129,7 @@ async function run() {
             // in req.decoded there is an email is this email is === to user email is same give him data otherwise no  
             const decodedEmail = req.decoded.email;
             if (email !== decodedEmail) {
-                return res.status(403).send({ error: true, message: 'Porbiden access' })
+                return res.status(403).send({ error: true, message: 'Porbidde n access' })
             }
             const query = { email: email }
             const result = await cartCollection.find(query).toArray();
