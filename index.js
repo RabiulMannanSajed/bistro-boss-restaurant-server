@@ -6,7 +6,7 @@ require('dotenv').config()
 const port = process.env.PORT || 5000;
 //json Web token 
 const jwt = require('jsonwebtoken');
-
+const stripe = require("stripe")(process.env.PAYMENT_SECRET_KEY);
 // middleware
 app.use(cors());
 app.use(express.json());
@@ -59,6 +59,9 @@ async function run() {
         const usersCollection = client.db("bistroDb").collection('users'); // this created in DB already
         const reviewsCollection = client.db("bistroDb").collection('reviews');
         const cartCollection = client.db("bistroDb").collection('carts');
+
+        const paymentCollection = client.db("bistroDb").collection('payment');
+
         //jwt token 
         app.post('/jwt', (req, res) => {
             const user = req.body;
@@ -129,14 +132,56 @@ async function run() {
             // in req.decoded there is an email is this email is === to user email is same give him data otherwise no  
             const decodedEmail = req.decoded.email;
             if (email !== decodedEmail) {
-                return res.status(403).send({ error: true, message: 'Porbidde n access' })
+                return res.status(403).send({ error: true, message: 'forbidden access' })
             }
             const query = { email: email }
             const result = await cartCollection.find(query).toArray();
             res.send(result)
         })
+        // cart collection
+
+        // to add something in booking collection 
+        app.post('/carts', async (req, res) => {
+            const item = req.body;
+            console.log(item);
+            const result = await cartCollection.insertOne(item);
+            res.send(result);
+        })
+        //delete 
+        app.delete('/carts/:id', async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: new ObjectId(id) }
+            const result = await cartCollection.deleteOne(query);
+            res.send(result);
+        })
 
 
+        // create payment intent
+
+        app.post("/create-payment-intent", verifyJWT, async (req, res) => {
+            const { price } = req.body;
+            const amount = price * 100; // convert in penny
+
+            console.log(price, amount);
+            const paymentIntent = await stripe.paymentIntents.create({
+                amount: amount,
+                currency: 'usd',
+                payment_method_types: ['card'],
+            })
+            res.send({
+                clientSecret: paymentIntent.client_secret
+            })
+        })
+        ///payment related API *** this part is important ***
+        app.post('/payments', verifyJWT, async (req, res) => {
+            const payment = req.body;
+            const insertResult = await paymentCollection.insertOne(payment);
+            const query = { _id: { $in: payment.cartItems.map(id => new ObjectId(id)) } }
+
+            const deleteResult = await cartCollection.deleteMany(query);
+
+            res.send({ insertResult, deleteResult });
+        })
 
         /// to add users
 
@@ -183,22 +228,7 @@ async function run() {
             const result = await usersCollection.updateOne(query, updateDoc);
             res.send(result)
         })
-        // cart collection
 
-        // to add something in booking collection 
-        app.post('/carts', async (req, res) => {
-            const item = req.body;
-            console.log(item);
-            const result = await cartCollection.insertOne(item);
-            res.send(result);
-        })
-        //delete 
-        app.delete('/carts/:id', async (req, res) => {
-            const id = req.params.id;
-            const query = { _id: new ObjectId(id) }
-            const result = await cartCollection.deleteOne(query);
-            res.send(result);
-        })
 
         await client.db("admin").command({ ping: 1 });
         console.log("Pinged your deployment. You successfully connected to MongoDB! this running ");
@@ -210,7 +240,7 @@ async function run() {
 run().catch(console.dir);
 
 app.get('/', (req, res) => {
-    res.send("Boss is sitting")
+    res.send("Bistro Boss resturent is running ")
 })
 
 app.listen(port, () => {
