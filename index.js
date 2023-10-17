@@ -172,6 +172,22 @@ async function run() {
                 clientSecret: paymentIntent.client_secret
             })
         })
+        // this api for admin home 
+        app.get('/admin-stats', verifyJWT, verifyAdmin, async (req, res) => {
+            const user = await usersCollection.estimatedDocumentCount();
+            const orders = await paymentCollection.estimatedDocumentCount();
+            const products = await menuCollection.estimatedDocumentCount();
+            const payment = await paymentCollection.find().toArray()
+            const revenue = payment.reduce((sum, payment) => sum + payment.price, 0);
+            res.send({
+                user,
+                orders,
+                products,
+                revenue
+            })
+        })
+
+
         ///payment related API *** this part is important ***
         app.post('/payments', verifyJWT, async (req, res) => {
             const payment = req.body;
