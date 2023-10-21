@@ -3,6 +3,9 @@ const express = require('express');
 const app = express();
 const cors = require('cors');
 require('dotenv').config()
+const nodemailer = require("nodemailer");
+const mg = require('nodemailer-mailgun-transport');
+
 const port = process.env.PORT || 5000;
 //json Web token 
 const jwt = require('jsonwebtoken');
@@ -10,6 +13,43 @@ const stripe = require("stripe")(process.env.PAYMENT_SECRET_KEY);
 // middleware
 app.use(cors());
 app.use(express.json());
+
+
+
+// send payment confirmation email 
+
+const auth = {
+    auth: {
+        api_key: process.env.EMAIL_PRIVATE_KEY,
+        domain: process.env.EMAIL_DOMAIN,
+    }
+}
+
+const transporter = nodemailer.createTransport(mg(auth));
+
+const sendPaymentConfirmationEmail = payment => {
+
+    transporter.sendMail({
+        from: 'rabiulmannansajed@gmail.com', // verified sender email
+        to: 'rabiulmannansajed@gmail.com', // recipient email
+        subject: "Your Order is confirm enjoy the food",
+        text: "Hello world!", // plain text body
+        html: `
+        <div>
+        <h3>Your payment is confirm</h3>
+        <p>Transaction Id : ${payment.transactionId}</p>
+        </div>
+        `, // html body
+    }, function (error, info) {
+        if (error) {
+            console.log('Email eroor ', error);
+        } else {
+            console.log('Email sent: ' + info.response);
+        }
+    });
+}
+
+
 
 // verifyJWT this token in server site cause if unknown user want to see other data
 const verifyJWT = (req, res, next) => {
@@ -93,7 +133,13 @@ async function run() {
             const result = await usersCollection.find().toArray();
             res.send(result)
         })
-
+        // delete user from data base 
+        app.delete('/users/:id', async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: new ObjectId(id) }
+            const result = await usersCollection.deleteOne(query);
+            res.send(result)
+        })
         //menu related api this is not admin only
         app.get('/menu', async (req, res) => {
             const result = await menuCollection.find().toArray();
@@ -107,7 +153,7 @@ async function run() {
             res.send(result);
         })
 
-        // delete single item from data base
+        // delete single item from data base  
 
         app.delete('/menu/:id', verifyJWT, verifyAdmin, async (req, res) => {
             const id = req.params.id;
@@ -160,7 +206,7 @@ async function run() {
 
         app.post("/create-payment-intent", verifyJWT, async (req, res) => {
             const { price } = req.body;
-            const amount = price * 100; // convert in penny
+            const amount = parseInt(price * 100); // convert in penny
 
             console.log(price, amount);
             const paymentIntent = await stripe.paymentIntents.create({
@@ -187,14 +233,48 @@ async function run() {
             })
         })
 
-
+        app.get('/order-stats', verifyJWT, verifyAdmin, async (req, res) => {
+            const pipeline = [
+                {
+                    $lookup: {
+                        from: 'menu',
+                        localField: 'menuItems',
+                        foreignField: '_id',
+                        as: 'menuItemsData'
+                    }
+                },
+                {
+                    $unwind: '$menuItemsData'
+                },
+                {
+                    $group: {
+                        _id: '$menuItemsData.category',
+                        count: { $sum: 1 },
+                        total: { $sum: '$menuItemsData.price' }
+                    }
+                },
+                {
+                    $project: {
+                        category: '$_id',
+                        count: 1,
+                        total: { $round: ['$total', 2] },
+                        _id: 0,
+                    }
+                }
+            ];
+            const result = await paymentCollection.aggregate(pipeline).toArray()
+            res.send(result);
+        })
         ///payment related API *** this part is important ***
         app.post('/payments', verifyJWT, async (req, res) => {
             const payment = req.body;
             const insertResult = await paymentCollection.insertOne(payment);
             const query = { _id: { $in: payment.cartItems.map(id => new ObjectId(id)) } }
 
+            // when payment is done then delete the item from cart 
             const deleteResult = await cartCollection.deleteMany(query);
+            // send an email
+            sendPaymentConfirmationEmail(payment);
 
             res.send({ insertResult, deleteResult });
         })
